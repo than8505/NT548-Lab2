@@ -1,0 +1,66 @@
+# Service "client" - image được Jenkins thay bằng <registry>/aurapan-client:<tag> qua kustomize
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-depl
+  labels: { app: client, tier: frontend }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: client }
+  template:
+    metadata:
+      labels: { app: client, tier: frontend }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: client
+          image: aurapan/client
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: SERVER_BASE_URL
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: SERVER_BASE_URL }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # ts-node biên dịch TypeScript lúc khởi động nên cần thời gian khởi động dài
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-srv
+  labels: { app: client }
+spec:
+  type: ClusterIP
+  selector: { app: client }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

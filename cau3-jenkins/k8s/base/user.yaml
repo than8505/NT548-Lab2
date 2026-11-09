@@ -1,0 +1,69 @@
+# Service "user" - image được Jenkins thay bằng <registry>/aurapan-user:<tag> qua kustomize
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-depl
+  labels: { app: user, tier: backend }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: user }
+  template:
+    metadata:
+      labels: { app: user, tier: backend }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: user
+          image: aurapan/user
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: MONGO_URI_USER
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: MONGO_URI_USER }
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef: { name: app-secrets, key: JWT_KEY }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # ts-node biên dịch TypeScript lúc khởi động nên cần thời gian khởi động dài
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-srv
+  labels: { app: user }
+spec:
+  type: ClusterIP
+  selector: { app: user }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

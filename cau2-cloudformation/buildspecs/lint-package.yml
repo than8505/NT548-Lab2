@@ -1,0 +1,75 @@
+# CodeBuild project 1: cfn-lint + đóng gói nested templates lên S3
+# Biến môi trường do pipeline.yaml cấu hình:
+#   PROJECT_DIR       thư mục chứa mã CloudFormation trong repo (cau2-cloudformation)
+#   TEMPLATES_BUCKET  S3 bucket lưu nested templates (artifact bucket)
+#   COMMIT_ID         commit CodeCommit (truyền từ pipeline variable)
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    PROJECT_DIR: cau2-cloudformation
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install --quiet --upgrade "cfn-lint>=1.20,<2"
+      - cfn-lint --version
+
+  pre_build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/$PROJECT_DIR"
+      - mkdir -p reports build
+
+  build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/$PROJECT_DIR"
+      # COMMIT_ID do CodePipeline truyền vào (#{SourceVariables.CommitId})
+      - export COMMIT_ID="${COMMIT_ID:-${CODEBUILD_RESOLVED_SOURCE_VERSION:-build-$CODEBUILD_BUILD_NUMBER}}"
+      - export COMMIT_ID="${COMMIT_ID:0:12}"
+      - export KEY_PREFIX="releases/${COMMIT_ID}/"
+      - echo "Commit ${COMMIT_ID} -> s3://${TEMPLATES_BUCKET}/${KEY_PREFIX}"
+      # 1) cfn-lint: in kết quả ra log + xuất JUnit để hiển thị ở tab Reports
+      - echo "===== cfn-lint ====="
+      - LINT_RC=0; cfn-lint --format parseable || LINT_RC=$?
+      - cfn-lint --format junit > reports/cfn-lint-junit.xml || true
+      # cfn-lint exit code là bitmask: 2=error, 4=warning, 8=informational
+      # -> chỉ FAIL build khi có lỗi (error)
+      - |
+        if [ $((LINT_RC & 2)) -ne 0 ]; then
+          echo "cfn-lint phát hiện LỖI -> dừng pipeline"; exit 1
+        fi
+        echo "cfn-lint OK (exit code bitmask = ${LINT_RC})"
+
+      # 2) Kiểm tra cú pháp bằng chính CloudFormation API
+      - |
+        for t in templates/*.yaml; do
+          echo "validate-template $t"
+          aws cloudformation validate-template --template-body "file://$t" > /dev/null
+        done
+
+      # 3) Upload nested templates lên S3 theo commit (versioned release)
+      - aws s3 sync templates/ "s3://${TEMPLATES_BUCKET}/${KEY_PREFIX}templates/" --delete --only-show-errors
+
+      # 4) Sinh file Template Configuration cho action CloudFormation deploy
+      - |
+        jq --arg b "$TEMPLATES_BUCKET" --arg p "$KEY_PREFIX" --arg c "$COMMIT_ID" \
+          '.Parameters += {TemplatesBucketName: $b, TemplatesKeyPrefix: $p} | .Tags += {CommitId: $c}' \
+          config/prod.json > build/prod-config.json
+      - cp templates/main.yaml build/main.yaml
+      - cat build/prod-config.json
+
+reports:
+  cfn-lint:
+    base-directory: cau2-cloudformation/reports
+    files:
+      - cfn-lint-junit.xml
+    file-format: JUNITXML
+
+artifacts:
+  base-directory: cau2-cloudformation/build
+  files:
+    - main.yaml
+    - prod-config.json

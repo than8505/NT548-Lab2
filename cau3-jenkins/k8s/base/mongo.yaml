@@ -1,0 +1,252 @@
+# MongoDB riêng cho từng service (database-per-service pattern)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-mongo-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # provisioner mặc định của k3s
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-mongo-depl
+  labels:
+    app: user-mongo
+    tier: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: user-mongo
+  template:
+    metadata:
+      labels:
+        app: user-mongo
+        tier: database
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            tcpSocket: { port: 27017 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: user-mongo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-mongo-srv
+spec:
+  selector:
+    app: user-mongo
+  ports:
+    - name: db
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: product-mongo-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # provisioner mặc định của k3s
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-mongo-depl
+  labels:
+    app: product-mongo
+    tier: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: product-mongo
+  template:
+    metadata:
+      labels:
+        app: product-mongo
+        tier: database
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            tcpSocket: { port: 27017 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: product-mongo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-mongo-srv
+spec:
+  selector:
+    app: product-mongo
+  ports:
+    - name: db
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: order-mongo-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # provisioner mặc định của k3s
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-mongo-depl
+  labels:
+    app: order-mongo
+    tier: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: order-mongo
+  template:
+    metadata:
+      labels:
+        app: order-mongo
+        tier: database
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            tcpSocket: { port: 27017 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: order-mongo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-mongo-srv
+spec:
+  selector:
+    app: order-mongo
+  ports:
+    - name: db
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: payment-mongo-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # provisioner mặc định của k3s
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-mongo-depl
+  labels:
+    app: payment-mongo
+    tier: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: payment-mongo
+  template:
+    metadata:
+      labels:
+        app: payment-mongo
+        tier: database
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            tcpSocket: { port: 27017 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: payment-mongo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-mongo-srv
+spec:
+  selector:
+    app: payment-mongo
+  ports:
+    - name: db
+      port: 27017
+      targetPort: 27017

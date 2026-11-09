@@ -1,0 +1,278 @@
+// =============================================================================
+// NT548 - Lab 2 - Câu 3: CI/CD cho ứng dụng microservices Aurapan
+//
+//  Checkout -> Detect changes -> Unit test (song song) -> SonarQube analysis
+//  -> Quality Gate -> Trivy (source) -> Build image (song song) -> Trivy (image)
+//  -> Push Docker Hub -> Deploy k3s (kustomize) -> Smoke test
+//
+// Yêu cầu trên Jenkins (đã cấu hình sẵn bằng JCasC - xem jenkins/casc.yaml):
+//   credentials: dockerhub, sonarqube-token, k3s-kubeconfig, app-jwt-key
+//   SonarQube server tên "SonarQube"; biến môi trường DOCKERHUB_NAMESPACE, K3S_HOST
+// =============================================================================
+
+ALL_SERVICES = ['client', 'user', 'product', 'order', 'payment', 'expiration']
+TESTABLE_SERVICES = ['user', 'product', 'order', 'payment'] // các service có unit test (Jest)
+
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    disableConcurrentBuilds()
+    timeout(time: 90, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+  }
+
+  // Jenkins nằm sau Security Group chỉ mở cho IP quản trị nên dùng poll SCM
+  // (có thể thay bằng GitHub webhook nếu mở port 8080 cho GitHub)
+  triggers {
+    pollSCM('H/2 * * * *')
+  }
+
+  parameters {
+    booleanParam(name: 'BUILD_ALL', defaultValue: false,
+      description: 'Build lại TẤT CẢ service (mặc định chỉ build service có thay đổi)')
+    booleanParam(name: 'QUALITY_GATE_BLOCKING', defaultValue: true,
+      description: 'Dừng pipeline nếu SonarQube Quality Gate không đạt')
+    booleanParam(name: 'TRIVY_BLOCK_ON_CRITICAL', defaultValue: false,
+      description: 'Dừng pipeline nếu image có lỗ hổng CRITICAL đã có bản vá')
+    booleanParam(name: 'SKIP_DEPLOY', defaultValue: false,
+      description: 'Chỉ CI (build/test/scan), không deploy lên k3s')
+  }
+
+  environment {
+    APP_DIR             = 'cau3-jenkins/app'
+    REGISTRY            = "docker.io/${env.DOCKERHUB_NAMESPACE}"
+    NODE_IMAGE          = 'node:20-bullseye'               // bullseye: mongodb-memory-server chạy được
+    SONAR_SCANNER_IMAGE = 'sonarsource/sonar-scanner-cli:11'
+    // Ghim phiên bản Trivy đã kiểm chứng (không dùng tag "latest")
+    TRIVY_IMAGE         = 'aquasec/trivy:0.58.1'
+    TRIVY_RUN           = 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        script {
+          env.SHORT_SHA = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
+          env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.SHORT_SHA}"
+          currentBuild.displayName = "#${env.BUILD_NUMBER} (${env.SHORT_SHA})"
+        }
+        sh 'rm -rf reports && mkdir -p reports'
+      }
+    }
+
+    stage('Detect changes') {
+      steps {
+        script {
+          if (params.BUILD_ALL) {
+            env.CHANGED_SERVICES = ALL_SERVICES.join(',')
+          } else {
+            def prev = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''
+            env.CHANGED_SERVICES = sh(returnStdout: true,
+              script: "bash cau3-jenkins/scripts/detect-changes.sh '${prev}' HEAD").trim()
+          }
+          echo "Commit trước (thành công): ${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: '(chưa có)'}"
+          echo "Service sẽ build/deploy   : ${env.CHANGED_SERVICES ?: '(không có - chỉ áp dụng lại manifest)'}"
+        }
+      }
+    }
+
+    stage('Unit test') {
+      steps {
+        script {
+          def branches = [:]
+          TESTABLE_SERVICES.each { svc ->
+            branches[svc] = {
+              docker.image(env.NODE_IMAGE).inside('-e HOME=/tmp -e npm_config_cache=/tmp/.npm') {
+                dir("${env.APP_DIR}/${svc}") {
+                  sh '''
+                    npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+                    npm install --no-save --no-audit --no-fund jest-junit@16
+                    JEST_JUNIT_OUTPUT_DIR=reports JEST_JUNIT_OUTPUT_NAME=junit.xml \
+                      npm run test:ci -- --ci --coverage \
+                        --coverageReporters=lcov --coverageReporters=text-summary \
+                        --reporters=default --reporters=jest-junit
+                    # Chuẩn hóa đường dẫn trong lcov thành tuyệt đối để SonarQube map đúng file
+                    sed -i -E "s#^SF:(src/)#SF:$(pwd)/\\1#" coverage/lcov.info
+                  '''
+                }
+              }
+            }
+          }
+          parallel branches
+        }
+      }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: "${env.APP_DIR}/*/reports/junit.xml"
+        }
+      }
+    }
+
+    stage('SonarQube analysis') {
+      steps {
+        withSonarQubeEnv('SonarQube') {
+          script {
+            docker.image(env.SONAR_SCANNER_IMAGE).inside("--network ${env.SONAR_NETWORK} --entrypoint='' -e SONAR_USER_HOME=/tmp/.sonar") {
+              dir('cau3-jenkins') {
+                sh '''
+                  sonar-scanner \
+                    -Dsonar.host.url="$SONAR_HOST_URL" \
+                    -Dsonar.token="$SONAR_AUTH_TOKEN" \
+                    -Dsonar.projectVersion="$IMAGE_TAG" \
+                    -Dsonar.scm.revision="$GIT_COMMIT"
+                '''
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 10, unit: 'MINUTES') {
+          script {
+            def qg = waitForQualityGate abortPipeline: false
+            echo "SonarQube Quality Gate: ${qg.status}"
+            if (qg.status != 'OK') {
+              def msg = "Quality Gate không đạt (${qg.status})"
+              if (params.QUALITY_GATE_BLOCKING) { error(msg) } else { unstable(msg) }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Trivy - source scan') {
+      steps {
+        // Quét lỗ hổng thư viện (package-lock), secret lộ trong code và cấu hình sai
+        // (Dockerfile, manifest Kubernetes, Terraform) - chỉ báo cáo, không chặn
+        sh '''
+          ${TRIVY_RUN} -v "$WORKSPACE:$WORKSPACE:ro" -w "$WORKSPACE" ${TRIVY_IMAGE} fs \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --no-progress \
+            --skip-dirs "**/node_modules" --format table cau3-jenkins > reports/trivy-fs.txt || true
+          cat reports/trivy-fs.txt
+        '''
+      }
+    }
+
+    stage('Build images') {
+      when { expression { return (env.CHANGED_SERVICES ?: '').trim() != '' } }
+      steps {
+        script {
+          def branches = [:]
+          env.CHANGED_SERVICES.split(',').each { svc ->
+            branches[svc] = {
+              sh """
+                docker build --pull \
+                  -t ${env.REGISTRY}/aurapan-${svc}:${env.IMAGE_TAG} \
+                  -t ${env.REGISTRY}/aurapan-${svc}:latest \
+                  --label org.opencontainers.image.revision=${env.GIT_COMMIT} \
+                  --label org.opencontainers.image.source=${env.GIT_URL} \
+                  ${env.APP_DIR}/${svc}
+              """
+            }
+          }
+          parallel branches
+        }
+      }
+    }
+
+    stage('Trivy - image scan') {
+      when { expression { return (env.CHANGED_SERVICES ?: '').trim() != '' } }
+      steps {
+        script {
+          def blocked = []
+          env.CHANGED_SERVICES.split(',').each { svc ->
+            def img = "${env.REGISTRY}/aurapan-${svc}:${env.IMAGE_TAG}"
+            sh """
+              ${env.TRIVY_RUN} ${env.TRIVY_IMAGE} image --scanners vuln --severity HIGH,CRITICAL \
+                --no-progress --format json ${img} > reports/trivy-image-${svc}.json
+              ${env.TRIVY_RUN} -v "\$WORKSPACE/reports:/reports:ro" ${env.TRIVY_IMAGE} convert \
+                --format table /reports/trivy-image-${svc}.json | tee reports/trivy-image-${svc}.txt
+              ${env.TRIVY_RUN} -v "\$WORKSPACE/reports:/reports:ro" ${env.TRIVY_IMAGE} convert \
+                --format template --template '@/contrib/html.tpl' /reports/trivy-image-${svc}.json > reports/trivy-image-${svc}.html
+            """
+            def critical = Integer.parseInt(sh(returnStdout: true, script: """
+              jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL" and (.FixedVersion // "") != "")] | length' reports/trivy-image-${svc}.json
+            """).trim())
+            echo "Trivy ${svc}: ${critical} lỗ hổng CRITICAL đã có bản vá"
+            if (critical > 0) { blocked << "${svc}(${critical})" }
+          }
+          if (blocked) {
+            def msg = "Image có lỗ hổng CRITICAL: ${blocked.join(', ')}"
+            if (params.TRIVY_BLOCK_ON_CRITICAL) { error(msg) } else { unstable(msg) }
+          }
+        }
+      }
+    }
+
+    stage('Push images') {
+      when { expression { return (env.CHANGED_SERVICES ?: '').trim() != '' } }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub',
+                                          usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
+          sh '''
+            # Dùng DOCKER_CONFIG tạm để không lưu token trong JENKINS_HOME
+            export DOCKER_CONFIG="$(mktemp -d)"
+            trap 'docker logout >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
+            echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+            for svc in $(echo "$CHANGED_SERVICES" | tr ',' ' '); do
+              docker push "$REGISTRY/aurapan-$svc:$IMAGE_TAG"
+              docker push "$REGISTRY/aurapan-$svc:latest"
+            done
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to k3s') {
+      when { expression { return !params.SKIP_DEPLOY } }
+      steps {
+        withCredentials([file(credentialsId: 'k3s-kubeconfig', variable: 'KUBECONFIG'),
+                         string(credentialsId: 'app-jwt-key', variable: 'JWT_KEY')]) {
+          sh 'BUILT_SERVICES="$CHANGED_SERVICES" bash cau3-jenkins/scripts/deploy.sh'
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'cau3-jenkins/.deploy/*.yaml', allowEmptyArchive: true
+        }
+      }
+    }
+
+    stage('Smoke test') {
+      when { expression { return !params.SKIP_DEPLOY } }
+      steps {
+        sh 'APP_URL="https://$K3S_HOST" bash cau3-jenkins/scripts/smoke-test.sh'
+      }
+    }
+  }
+
+  post {
+    always {
+      sh '''
+        # Trang index cho các báo cáo Trivy
+        {
+          echo "<html><body><h2>Trivy reports - build $BUILD_NUMBER ($IMAGE_TAG)</h2><ul>"
+          for f in reports/*.html reports/*.txt; do
+            [ -e "$f" ] && echo "<li><a href=\\"$(basename "$f")\\">$(basename "$f")</a></li>"
+          done
+          echo "</ul></body></html>"
+        } > reports/index.html
+      '''
+      archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+      publishHTML(target: [reportDir: 'reports', reportFiles: 'index.html', reportName: 'Security reports',
+                           allowMissing: true, alwaysLinkToLastBuild: true, keepAll: true])
+      // Dọn image build cũ để tiết kiệm ổ đĩa
+      sh 'docker image prune -f --filter "until=48h" > /dev/null 2>&1 || true'
+    }
+    success {
+      echo "Deploy thành công tag ${env.IMAGE_TAG}. Truy cập: https://<K3S_PUBLIC_IP>/"
+    }
+  }
+}

@@ -1,0 +1,84 @@
+# Jenkins + SonarQube (+ PostgreSQL) chạy trên máy Jenkins (EC2)
+# Khởi động bằng: ./bootstrap.sh   (đọc biến từ file .env)
+name: lab2
+
+services:
+  jenkins:
+    build: .
+    image: lab2-jenkins:latest
+    container_name: jenkins
+    restart: unless-stopped
+    # Cho user jenkins (uid 1000) dùng docker.sock của host
+    group_add:
+      - "${DOCKER_GID}"
+    ports:
+      - "8080:8080"
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false -Xms512m -Xmx2g"
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
+      JENKINS_URL: ${JENKINS_URL}
+      DOCKERHUB_USER: ${DOCKERHUB_USER}
+      DOCKERHUB_TOKEN: ${DOCKERHUB_TOKEN}
+      SONAR_TOKEN: ${SONAR_TOKEN}
+      JWT_KEY: ${JWT_KEY}
+      K3S_HOST: ${K3S_HOST}
+      LAB_REPO_URL: ${LAB_REPO_URL}
+      LAB_REPO_BRANCH: ${LAB_REPO_BRANCH:-main}
+    volumes:
+      # Mount cùng đường dẫn với host để các container build (docker.inside)
+      # thấy đúng workspace khi chạy qua docker.sock của host
+      - /var/jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./casc.yaml:/var/jenkins_casc/casc.yaml:ro
+      - ./secrets/kubeconfig:/run/secrets/kubeconfig:ro
+    depends_on:
+      sonarqube:
+        condition: service_started
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube
+    restart: unless-stopped
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "9000:9000"
+    ulimits:
+      nofile: { soft: 131072, hard: 131072 }
+      nproc: { soft: 8192, hard: 8192 }
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: sonar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: sonar
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - sonar_db:/var/lib/postgresql/data
+
+networks:
+  default:
+    name: lab2-net
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  sonar_db:

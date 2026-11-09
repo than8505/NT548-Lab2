@@ -1,0 +1,19 @@
+# Sao chép thành terraform.tfvars rồi chỉnh sửa (file terraform.tfvars đã nằm trong .gitignore)
+aws_region  = "ap-southeast-1"
+project     = "nt548-lab2"
+environment = "dev"
+
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24"]
+private_subnet_cidrs = ["10.0.2.0/24"]
+
+# IP của bạn: chạy `curl -s ifconfig.me` rồi thêm /32
+allowed_ssh_cidr = "203.0.113.10/32"
+
+instance_type = "t3.micro"
+
+# Chọn MỘT trong hai cách:
+# 1) Truyền public key, Terraform tự tạo Key Pair
+ssh_public_key = "ssh-ed25519 AAAA... your-email@example.com"
+# 2) Dùng Key Pair đã có sẵn trên AWS
+# existing_key_name = "my-keypair"

@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  NT548 Lab2 - Cau 2 - Nested stack EC2: Public EC2 (bastion) va Private EC2.
+  Launch Template bat IMDSv2, ma hoa EBS, detailed monitoring; IAM role cho SSM.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID (main stack truyen vao tu SSM Parameter)
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t2.micro, t3.micro, t3.small, t3.medium]
+  KeyName:
+    Type: String
+    Default: ""
+    Description: Ten EC2 Key Pair co san (de trong neu chi dung SSM Session Manager)
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+  PublicSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  PrivateSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, ""]]
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ec2-role
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref ImageId
+        InstanceType: !Ref InstanceType
+        KeyName: !If [HasKeyName, !Ref KeyName, !Ref "AWS::NoValue"]
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        Monitoring:
+          Enabled: true
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 10
+              Encrypted: true
+              DeleteOnTermination: true
+
+  PublicInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: "0"
+          SubnetId: !Ref PublicSubnetId
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref PublicSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-ec2
+        - Key: Role
+          Value: bastion
+
+  PrivateInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: "0"
+          SubnetId: !Ref PrivateSubnetId
+          AssociatePublicIpAddress: false
+          GroupSet:
+            - !Ref PrivateSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-ec2
+        - Key: Role
+          Value: private
+
+Outputs:
+  PublicInstanceId:
+    Description: Instance ID cua Public EC2
+    Value: !Ref PublicInstance
+  PublicInstancePublicIp:
+    Description: Public IP cua Public EC2
+    Value: !GetAtt PublicInstance.PublicIp
+  PrivateInstanceId:
+    Description: Instance ID cua Private EC2
+    Value: !Ref PrivateInstance
+  PrivateInstancePrivateIp:
+    Description: Private IP cua Private EC2
+    Value: !GetAtt PrivateInstance.PrivateIp

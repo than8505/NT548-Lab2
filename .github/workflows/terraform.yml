@@ -1,0 +1,249 @@
+name: "Cau 1 - Terraform CI/CD (Checkov + Plan + Apply)"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "cau1-terraform/**"
+      - ".github/workflows/terraform.yml"
+      - ".github/actions/terraform-setup/**"
+  push:
+    branches: [main]
+    paths:
+      - "cau1-terraform/**"
+      - ".github/workflows/terraform.yml"
+      - ".github/actions/terraform-setup/**"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Hành động Terraform"
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  contents: read
+
+# Không cho 2 lần chạy cùng ghi state song song
+concurrency:
+  group: terraform-cau1
+  cancel-in-progress: false
+
+env:
+  TF_DIR: cau1-terraform
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+  STATE_KEY: cau1/terraform.tfstate
+  # Biến Terraform lấy từ GitHub Variables (Settings > Secrets and variables > Actions > Variables)
+  TF_VAR_aws_region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+  TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
+  TF_VAR_ssh_public_key: ${{ vars.SSH_PUBLIC_KEY }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Checkov: quét bảo mật & tuân thủ mã Terraform
+  # ---------------------------------------------------------------------------
+  checkov:
+    name: Checkov security scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF lên tab Security > Code scanning
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chạy Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ${{ env.TF_DIR }}
+          config_file: ${{ env.TF_DIR }}/.checkov.yaml
+          framework: terraform
+          output_format: cli,sarif,junitxml
+          output_file_path: console,checkov-results.sarif,checkov-junit.xml
+          soft_fail: false # có lỗi => pipeline dừng, KHÔNG được apply
+
+      - name: Upload kết quả SARIF lên GitHub Security
+        if: always() && hashFiles('checkov-results.sarif') != ''
+        continue-on-error: true # repo private không có GHAS sẽ không upload được
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov-terraform
+
+      - name: Lưu báo cáo Checkov
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-report
+          path: |
+            checkov-results.sarif
+            checkov-junit.xml
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 2) fmt + validate (không cần AWS credentials)
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Terraform fmt & validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.17.0"
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+        working-directory: ${{ env.TF_DIR }}
+      - name: terraform validate
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
+
+  # ---------------------------------------------------------------------------
+  # 3) Plan: chạy cho PR, push main và dispatch(plan/apply)
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Terraform plan
+    needs: [checkov, validate]
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'destroy'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # cần cho OIDC
+      pull-requests: write # comment kết quả plan vào PR
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup & init
+        uses: ./.github/actions/terraform-setup
+        with:
+          working-directory: ${{ env.TF_DIR }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          state-key: ${{ env.STATE_KEY }}
+
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          set +e
+          terraform plan -no-color -input=false -detailed-exitcode -out=tfplan
+          code=$?
+          set -e
+          if [ "$code" -eq 1 ]; then echo "Plan lỗi"; exit 1; fi
+          if [ "$code" -eq 2 ]; then echo "has_changes=true" >> "$GITHUB_OUTPUT"; else echo "has_changes=false" >> "$GITHUB_OUTPUT"; fi
+          terraform show -no-color tfplan > plan.txt
+          {
+            echo "## Terraform plan (Câu 1)"
+            echo '```'
+            tail -n 60 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan vào Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = fs.readFileSync('${{ env.TF_DIR }}/plan.txt', 'utf8');
+            if (plan.length > 60000) plan = plan.slice(-60000);
+            const body = `### Terraform plan - Câu 1\n<details><summary>Xem chi tiết</summary>\n\n\`\`\`hcl\n${plan}\n\`\`\`\n</details>\n\n*Checkov: passed* | *Run: ${context.runId}*`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body
+            });
+
+      # Lưu plan + lock file để job apply áp dụng ĐÚNG plan đã review
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: |
+            ${{ env.TF_DIR }}/tfplan
+            ${{ env.TF_DIR }}/.terraform.lock.hcl
+          include-hidden-files: true
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 4) Apply: chỉ khi push vào main hoặc dispatch "apply"
+  #    Environment "production" có thể bật Required reviewers để duyệt tay
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Terraform apply
+    needs: plan
+    if: >-
+      needs.plan.outputs.has_changes == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_dispatch' && inputs.action == 'apply'))
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tải plan đã duyệt
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_DIR }}
+
+      - name: Setup & init
+        uses: ./.github/actions/terraform-setup
+        with:
+          working-directory: ${{ env.TF_DIR }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          state-key: ${{ env.STATE_KEY }}
+
+      - name: terraform apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Xuất outputs
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform output -no-color | tee outputs.txt
+          {
+            echo "## Kết quả triển khai (terraform output)"
+            echo '```'
+            cat outputs.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 5) Destroy: chỉ chạy tay (workflow_dispatch -> destroy)
+  # ---------------------------------------------------------------------------
+  destroy:
+    name: Terraform destroy
+    needs: [checkov, validate]
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup & init
+        uses: ./.github/actions/terraform-setup
+        with:
+          working-directory: ${{ env.TF_DIR }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          state-key: ${{ env.STATE_KEY }}
+      - name: terraform destroy
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform destroy -input=false -auto-approve

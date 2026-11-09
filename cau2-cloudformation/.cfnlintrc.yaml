@@ -1,0 +1,9 @@
+# Cấu hình cfn-lint
+# Chạy local:  cd cau2-cloudformation && cfn-lint
+templates:
+  - templates/*.yaml
+  - pipeline/*.yaml
+regions:
+  - ap-southeast-1
+include_checks:
+  - I # bật cả rule mức Informational

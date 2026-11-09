@@ -1,0 +1,31 @@
+# Ingress dùng Traefik (ingress controller mặc định của k3s, lắng nghe 80/443 trên node)
+# Truy cập: https://<K3S_PUBLIC_IP>/  (chứng chỉ self-signed mặc định của Traefik)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aurapan-ingress
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /api/users
+            pathType: Prefix
+            backend:
+              service: { name: user-srv, port: { number: 3000 } }
+          - path: /api/products
+            pathType: Prefix
+            backend:
+              service: { name: product-srv, port: { number: 3000 } }
+          - path: /api/orders
+            pathType: Prefix
+            backend:
+              service: { name: order-srv, port: { number: 3000 } }
+          - path: /api/payments
+            pathType: Prefix
+            backend:
+              service: { name: payment-srv, port: { number: 3000 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: client-srv, port: { number: 3000 } }

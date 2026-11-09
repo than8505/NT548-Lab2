@@ -1,0 +1,52 @@
+name: "Terraform setup (AWS OIDC + init)"
+description: >
+  Composite action dùng chung cho các job plan/apply/destroy:
+  cài Terraform, xác thực AWS qua OIDC và chạy terraform init với S3 backend.
+
+inputs:
+  working-directory:
+    description: "Thư mục chứa mã Terraform"
+    required: true
+  terraform-version:
+    description: "Phiên bản Terraform"
+    required: false
+    default: "~1.17.0"
+  aws-region:
+    description: "AWS Region"
+    required: true
+  role-to-assume:
+    description: "ARN IAM Role cho GitHub OIDC"
+    required: true
+  state-bucket:
+    description: "Tên S3 bucket chứa state"
+    required: true
+  state-key:
+    description: "Key của file state trong bucket"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Cài Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false
+
+    - name: Xác thực AWS bằng OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Terraform init (S3 backend + lockfile)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        terraform init -input=false \
+          -backend-config="bucket=${{ inputs.state-bucket }}" \
+          -backend-config="key=${{ inputs.state-key }}" \
+          -backend-config="region=${{ inputs.aws-region }}" \
+          -backend-config="encrypt=true" \
+          -backend-config="use_lockfile=true"

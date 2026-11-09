@@ -1,0 +1,78 @@
+# Service "product" - image được Jenkins thay bằng <registry>/aurapan-product:<tag> qua kustomize
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-depl
+  labels: { app: product, tier: backend }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: product }
+  template:
+    metadata:
+      labels: { app: product, tier: backend }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: product
+          image: aurapan/product
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: NATS_CLIENT_ID
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: NATS_URL }
+            - name: NATS_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: NATS_CLUSTER_ID }
+            - name: MONGO_URI_PRODUCT
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: MONGO_URI_PRODUCT }
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef: { name: app-secrets, key: JWT_KEY }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # ts-node biên dịch TypeScript lúc khởi động nên cần thời gian khởi động dài
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-srv
+  labels: { app: product }
+spec:
+  type: ClusterIP
+  selector: { app: product }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

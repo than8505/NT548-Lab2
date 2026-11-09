@@ -1,0 +1,16 @@
+{
+  "Parameters": {
+    "EnvironmentName": "nt548-lab2-cfn",
+    "VpcCidr": "10.10.0.0/16",
+    "PublicSubnetCidr": "10.10.1.0/24",
+    "PrivateSubnetCidr": "10.10.2.0/24",
+    "AllowedSSHCidr": "203.0.113.10/32",
+    "KeyName": "",
+    "InstanceType": "t3.micro"
+  },
+  "Tags": {
+    "Project": "NT548-Lab2",
+    "Lab": "Cau2",
+    "ManagedBy": "CloudFormation-CodePipeline"
+  }
+}

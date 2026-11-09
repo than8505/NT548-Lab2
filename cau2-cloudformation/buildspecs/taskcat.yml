@@ -1,0 +1,37 @@
+# CodeBuild project 2: Taskcat - triển khai thử template trên AWS, kiểm tra
+# stack CREATE_COMPLETE rồi tự xóa. Sinh báo cáo HTML trong taskcat_outputs/.
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    PROJECT_DIR: cau2-cloudformation
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install --quiet --upgrade taskcat
+      - taskcat --version
+
+  build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/$PROJECT_DIR"
+      - echo "===== taskcat lint ====="
+      - taskcat lint
+      - echo "===== taskcat test run (deploy thật -> kiểm tra -> xóa) ====="
+      - taskcat test run --minimal-output
+
+  post_build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/$PROJECT_DIR"
+      - ls -la taskcat_outputs || true
+      # Dọn bucket tạm do taskcat tạo (nếu còn sót)
+      - taskcat test clean nt548-lab2-cfn || true
+
+artifacts:
+  name: taskcat-report
+  base-directory: cau2-cloudformation/taskcat_outputs
+  files:
+    - "**/*"

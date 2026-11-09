@@ -1,0 +1,19 @@
+# Plugin cần cho pipeline Câu 3 (phiên bản mới nhất tương thích với Jenkins LTS)
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-stage-view
+pipeline-utility-steps
+git
+github
+credentials
+credentials-binding
+plain-credentials
+docker-workflow
+sonar
+junit
+htmlpublisher
+timestamper
+ws-cleanup
+ansicolor
+build-timeout

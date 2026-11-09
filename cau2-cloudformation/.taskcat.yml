@@ -1,0 +1,22 @@
+# Cấu hình Taskcat - kiểm thử triển khai THẬT template trên AWS rồi tự xóa stack
+# Chạy local:  cd cau2-cloudformation && taskcat test run
+project:
+  name: nt548-lab2-cfn
+  regions:
+    - ap-southeast-1
+  # Taskcat tự tạo S3 bucket (taskcat_autobucket) và upload toàn bộ thư mục
+  # project vào prefix <project-name>/  ->  templates/*.yaml nằm tại
+  # s3://<autobucket>/nt548-lab2-cfn/templates/
+  package_lambda: false
+  shorten_stack_name: true
+
+tests:
+  default:
+    template: templates/main.yaml
+    parameters:
+      TemplatesBucketName: $[taskcat_autobucket]
+      TemplatesKeyPrefix: $[taskcat_project_name]/
+      EnvironmentName: tcat-lab2
+      AllowedSSHCidr: 203.0.113.10/32
+      KeyName: ""
+      InstanceType: t3.micro

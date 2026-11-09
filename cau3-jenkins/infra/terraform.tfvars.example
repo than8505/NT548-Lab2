@@ -1,0 +1,6 @@
+aws_region      = "ap-southeast-1"
+admin_cidr      = "203.0.113.10/32"                              # curl -s ifconfig.me
+lab_repo_url    = "https://github.com/<owner>/NT548-Lab2.git"   # repo PUBLIC của nhóm
+lab_repo_branch = "main"
+ssh_public_key  = "ssh-ed25519 AAAA... you@example.com"
+# app_public = true   # mở ứng dụng cho mọi người (80/443)

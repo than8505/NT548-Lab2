@@ -1,0 +1,12 @@
+# Cấu hình Checkov cho Câu 1
+# Chạy local:  checkov --config-file .checkov.yaml -d .
+framework:
+  - terraform
+# Thư mục bootstrap chỉ chạy 1 lần bằng tay bởi admin (tạo state bucket + OIDC role),
+# không thuộc hạ tầng Lab 1 nên được loại khỏi phạm vi quét.
+skip-path:
+  - bootstrap
+compact: true
+quiet: false
+# Không skip check toàn cục. Các ngoại lệ được skip ngay trong code bằng
+# comment  #checkov:skip=<ID>:<lý do>  để dễ review.

@@ -1,0 +1,47 @@
+# Service "expiration" - image được Jenkins thay bằng <registry>/aurapan-expiration:<tag> qua kustomize
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expiration-depl
+  labels: { app: expiration, tier: backend }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: expiration }
+  template:
+    metadata:
+      labels: { app: expiration, tier: backend }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: expiration
+          image: aurapan/expiration
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_CLIENT_ID
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: NATS_URL }
+            - name: NATS_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: NATS_CLUSTER_ID }
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: REDIS_HOST }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }

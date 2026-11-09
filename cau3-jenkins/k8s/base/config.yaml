@@ -1,0 +1,17 @@
+# Cấu hình không nhạy cảm dùng chung cho các service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  NATS_URL: "http://nats-srv:4222"
+  NATS_CLUSTER_ID: "aurapan"
+  REDIS_HOST: "expiration-redis-srv"
+  MONGO_URI_USER: "mongodb://user-mongo-srv:27017/user"
+  MONGO_URI_PRODUCT: "mongodb://product-mongo-srv:27017/product"
+  MONGO_URI_ORDER: "mongodb://order-mongo-srv:27017/order"
+  MONGO_URI_PAYMENT: "mongodb://payment-mongo-srv:27017/payment"
+  # Client (Next.js SSR) gọi API nội bộ cluster qua Traefik (ingress mặc định của k3s)
+  SERVER_BASE_URL: "http://traefik.kube-system.svc.cluster.local"
+# Secret "app-secrets" (JWT_KEY, STRIPE_KEY, PAYPAL_CLIENT_ID) KHÔNG nằm trong Git:
+# được tạo bởi scripts/deploy.sh từ Jenkins credentials.

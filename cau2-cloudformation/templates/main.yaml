@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  NT548 Lab2 - Cau 2 - Root stack: trien khai ha tang Lab 1
+  (VPC, Route Tables, NAT Gateway, EC2, Security Groups) bang Nested Stacks.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: "Vi tri chua nested templates (S3)" }
+        Parameters: [TemplatesBucketName, TemplatesKeyPrefix]
+      - Label: { default: "Mang" }
+        Parameters: [EnvironmentName, VpcCidr, PublicSubnetCidr, PrivateSubnetCidr]
+      - Label: { default: "EC2 & bao mat" }
+        Parameters: [AllowedSSHCidr, KeyName, InstanceType, LatestAmiId]
+
+Parameters:
+  TemplatesBucketName:
+    Type: String
+    Description: S3 bucket chua cac nested template (CodeBuild/taskcat tu dien)
+    AllowedPattern: '^[0-9a-z][0-9a-z.-]*[0-9a-z]$'
+  TemplatesKeyPrefix:
+    Type: String
+    Description: Prefix trong bucket, phai ket thuc bang dau "/" (vd releases/abc123/)
+    AllowedPattern: '^[0-9a-zA-Z._/-]*/$'
+  EnvironmentName:
+    Type: String
+    Default: nt548-lab2-cfn
+    AllowedPattern: '^[a-z0-9-]{3,32}$'
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.2.0/24
+  AllowedSSHCidr:
+    Type: String
+    Description: IP duoc phep SSH vao Public EC2 (vd 203.0.113.10/32)
+  KeyName:
+    Type: String
+    Default: ""
+    Description: Ten EC2 Key Pair co san (de trong = khong dung key)
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t2.micro, t3.micro, t3.small, t3.medium]
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucketName}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatesKeyPrefix}templates/vpc.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcCidr: !Ref VpcCidr
+        PublicSubnetCidr: !Ref PublicSubnetCidr
+        PrivateSubnetCidr: !Ref PrivateSubnetCidr
+
+  SecurityGroupStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucketName}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatesKeyPrefix}templates/security-groups.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        AllowedSSHCidr: !Ref AllowedSSHCidr
+
+  Ec2Stack:
+    Type: AWS::CloudFormation::Stack
+    # GetAtt VpcStack.Outputs.* tao phu thuoc ngam: VpcStack (gom NAT + route)
+    # phai CREATE_COMPLETE truoc khi tao EC2
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucketName}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatesKeyPrefix}templates/ec2.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        PublicSubnetId: !GetAtt VpcStack.Outputs.PublicSubnetId
+        PrivateSubnetId: !GetAtt VpcStack.Outputs.PrivateSubnetId
+        PublicSecurityGroupId: !GetAtt SecurityGroupStack.Outputs.PublicSecurityGroupId
+        PrivateSecurityGroupId: !GetAtt SecurityGroupStack.Outputs.PrivateSecurityGroupId
+
+Outputs:
+  VpcId:
+    Value: !GetAtt VpcStack.Outputs.VpcId
+  PublicSubnetId:
+    Value: !GetAtt VpcStack.Outputs.PublicSubnetId
+  PrivateSubnetId:
+    Value: !GetAtt VpcStack.Outputs.PrivateSubnetId
+  NatGatewayId:
+    Value: !GetAtt VpcStack.Outputs.NatGatewayId
+  PublicRouteTableId:
+    Value: !GetAtt VpcStack.Outputs.PublicRouteTableId
+  PrivateRouteTableId:
+    Value: !GetAtt VpcStack.Outputs.PrivateRouteTableId
+  PublicSecurityGroupId:
+    Value: !GetAtt SecurityGroupStack.Outputs.PublicSecurityGroupId
+  PrivateSecurityGroupId:
+    Value: !GetAtt SecurityGroupStack.Outputs.PrivateSecurityGroupId
+  PublicInstancePublicIp:
+    Value: !GetAtt Ec2Stack.Outputs.PublicInstancePublicIp
+  PrivateInstancePrivateIp:
+    Value: !GetAtt Ec2Stack.Outputs.PrivateInstancePrivateIp
+  SshToPublic:
+    Description: Lenh SSH vao Public EC2
+    Value: !Sub
+      - ssh -i <key.pem> ec2-user@${Ip}
+      - Ip: !GetAtt Ec2Stack.Outputs.PublicInstancePublicIp
+  SshToPrivateViaBastion:
+    Description: Lenh SSH vao Private EC2 thong qua Public EC2
+    Value: !Sub
+      - ssh -i <key.pem> -J ec2-user@${PubIp} ec2-user@${PrivIp}
+      - PubIp: !GetAtt Ec2Stack.Outputs.PublicInstancePublicIp
+        PrivIp: !GetAtt Ec2Stack.Outputs.PrivateInstancePrivateIp

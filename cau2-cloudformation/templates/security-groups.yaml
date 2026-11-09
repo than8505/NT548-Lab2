@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  NT548 Lab2 - Cau 2 - Nested stack Security Groups:
+  Public SG (SSH tu IP chi dinh) va Private SG (SSH tu Public SG).
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  AllowedSSHCidr:
+    Type: String
+    Description: IP duoc phep SSH vao Public EC2 (vd 203.0.113.10/32). Khong dung 0.0.0.0/0
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/(\d|[1-2]\d|3[0-2])$'
+    ConstraintDescription: Phai la CIDR hop le, vd 203.0.113.10/32
+
+Rules:
+  NoOpenSsh:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AllowedSSHCidr, 0.0.0.0/0]]
+        AssertDescription: Khong duoc mo SSH cho toan Internet (0.0.0.0/0)
+
+Resources:
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public EC2 - SSH chi tu IP duoc chi dinh
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH tu IP quan tri
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSSHCidr
+      SecurityGroupEgress:
+        - Description: Cho phep traffic di ra
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-ec2-sg
+
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private EC2 - SSH chi tu Public EC2
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH tu Public EC2 (bastion)
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref PublicSecurityGroup
+      SecurityGroupEgress:
+        - Description: Cho phep traffic di ra (qua NAT Gateway)
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-ec2-sg
+
+Outputs:
+  PublicSecurityGroupId:
+    Description: ID Security Group cua Public EC2
+    Value: !Ref PublicSecurityGroup
+  PrivateSecurityGroupId:
+    Description: ID Security Group cua Private EC2
+    Value: !Ref PrivateSecurityGroup

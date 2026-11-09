@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Namespace "aurapan" + ServiceAccount jenkins-deployer được tạo sẵn khi dựng k3s
+# (infra/user-data/k3s.sh). Jenkins chỉ có quyền "admin" trong namespace này.
+namespace: aurapan
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: aurapan
+      app.kubernetes.io/managed-by: jenkins
+    includeSelectors: false
+resources:
+  - config.yaml
+  - mongo.yaml
+  - messaging.yaml
+  - user.yaml
+  - product.yaml
+  - order.yaml
+  - payment.yaml
+  - expiration.yaml
+  - client.yaml
+  - ingress.yaml
+# Giá trị mặc định khi deploy tay (kubectl apply -k). Jenkins sinh overlay ghi đè newName/newTag.
+images:
+  - { name: aurapan/client, newName: docker.io/CHANGE_ME/aurapan-client, newTag: latest }
+  - { name: aurapan/user, newName: docker.io/CHANGE_ME/aurapan-user, newTag: latest }
+  - { name: aurapan/product, newName: docker.io/CHANGE_ME/aurapan-product, newTag: latest }
+  - { name: aurapan/order, newName: docker.io/CHANGE_ME/aurapan-order, newTag: latest }
+  - { name: aurapan/payment, newName: docker.io/CHANGE_ME/aurapan-payment, newTag: latest }
+  - { name: aurapan/expiration, newName: docker.io/CHANGE_ME/aurapan-expiration, newTag: latest }

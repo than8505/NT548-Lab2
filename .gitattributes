@@ -1,0 +1,10 @@
+# Luôn dùng LF cho mọi file văn bản (script chạy trên Linux: EC2, CodeBuild, Jenkins)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
