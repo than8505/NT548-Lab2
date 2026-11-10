@@ -24,6 +24,20 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id   = data.aws_caller_identity.current.account_id
   state_bucket = "${var.project}-tfstate-${local.account_id}"
+
+  # Claim "sub" của GitHub OIDC có 2 dạng:
+  #   - cũ        : repo:<owner>/<repo>:<ref|pull_request|environment:...>
+  #   - immutable : repo:<owner>@<owner_id>/<repo>@<repo_id>:...  (repo mới tạo)
+  # Chấp nhận cả hai; dạng immutable được ghim theo ID nên không bị giả mạo
+  # khi tên owner/repo bị đổi và đăng ký lại.
+  github_owner = split("/", var.github_repo)[0]
+  github_name  = split("/", var.github_repo)[1]
+  github_subjects = concat(
+    ["repo:${var.github_repo}:*"],
+    var.github_owner_id != "" && var.github_repo_id != "" ? [
+      "repo:${local.github_owner}@${var.github_owner_id}/${local.github_name}@${var.github_repo_id}:*"
+    ] : []
+  )
 }
 
 # ----------------------------------------------------------------------------
@@ -112,7 +126,7 @@ resource "aws_iam_role" "github_actions" {
         }
         # Chỉ repo của nhóm được assume role này (mọi branch / PR / environment)
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+          "token.actions.githubusercontent.com:sub" = local.github_subjects
         }
       }
     }]

@@ -20,6 +20,18 @@ variable "github_repo" {
   }
 }
 
+variable "github_owner_id" {
+  description = "ID số của owner GitHub (dùng khi claim sub dạng immutable: repo:owner@ID/repo@ID:...)"
+  type        = string
+  default     = ""
+}
+
+variable "github_repo_id" {
+  description = "ID số của repo GitHub (dùng khi claim sub dạng immutable)"
+  type        = string
+  default     = ""
+}
+
 variable "create_github_oidc_provider" {
   description = "Tạo GitHub OIDC provider. Đặt false nếu account đã có sẵn provider này"
   type        = bool
