@@ -12,7 +12,9 @@ phases:
     runtime-versions:
       python: 3.11
     commands:
-      - pip install --quiet --upgrade taskcat
+      # taskcat còn dùng pkg_resources (đã bị gỡ khỏi setuptools >= 81)
+      # -> ghim setuptools < 81 để taskcat chạy được
+      - pip install --quiet --upgrade "setuptools<81" taskcat
       - taskcat --version
 
   build:
