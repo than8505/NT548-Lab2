@@ -250,6 +250,24 @@ Resources:
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${InfraStackName}*
                   - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${InfraStackName}*
 
+  # Nested stack: CloudFormation dung lai CHINH role nay de tao stack con,
+  # nen role phai duoc phep iam:PassRole cho chinh no (tach thanh policy rieng
+  # de tranh tham chieu vong toi GetAtt cua chinh role).
+  CloudFormationDeployRolePassSelf:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref CloudFormationDeployRole
+      PolicyName: pass-self-for-nested-stacks
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt CloudFormationDeployRole.Arn
+            Condition:
+              StringEquals:
+                iam:PassedToService: cloudformation.amazonaws.com
+
   CodePipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -451,7 +469,7 @@ Resources:
                 - Name: DeployOutput
 
   # ---------------------------------------------------------------------------
-  # EventBridge: tự động chạy pipeline khi push lên branch
+  # EventBridge: tu dong chay pipeline khi push len branch
   # ---------------------------------------------------------------------------
   PipelineTriggerRole:
     Type: AWS::IAM::Role
