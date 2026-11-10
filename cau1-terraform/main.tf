@@ -138,3 +138,5 @@ module "private_ec2" {
   # Đảm bảo NAT đã sẵn sàng để private instance có Internet khi khởi động
   depends_on = [module.vpc]
 }
+
+# Lab2 Cau 1 - kiem tra pipeline qua Pull Request
