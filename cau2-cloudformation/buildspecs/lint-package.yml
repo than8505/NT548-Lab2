@@ -15,7 +15,7 @@ phases:
     runtime-versions:
       python: 3.11
     commands:
-      - pip install --quiet --upgrade "cfn-lint>=1.20,<2"
+      - pip install --quiet --upgrade "cfn-lint[junit]>=1.20,<2"
       - cfn-lint --version
 
   pre_build:

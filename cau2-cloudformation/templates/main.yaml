@@ -53,6 +53,8 @@ Parameters:
 Resources:
   VpcStack:
     Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       TemplateURL: !Sub https://${TemplatesBucketName}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatesKeyPrefix}templates/vpc.yaml
       Parameters:
@@ -63,6 +65,8 @@ Resources:
 
   SecurityGroupStack:
     Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       TemplateURL: !Sub https://${TemplatesBucketName}.s3.${AWS::Region}.${AWS::URLSuffix}/${TemplatesKeyPrefix}templates/security-groups.yaml
       Parameters:
@@ -72,6 +76,8 @@ Resources:
 
   Ec2Stack:
     Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     # GetAtt VpcStack.Outputs.* tao phu thuoc ngam: VpcStack (gom NAT + route)
     # phai CREATE_COMPLETE truoc khi tao EC2
     Properties:
