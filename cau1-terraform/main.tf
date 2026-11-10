@@ -22,11 +22,9 @@ locals {
     Lab         = "NT548-Lab2-Cau1"
   })
 
-  azs = length(var.azs) > 0 ? var.azs : slice(data.aws_availability_zones.available.names, 0, 2)
-}
-
-data "aws_availability_zones" "available" {
-  state = "available"
+  # Ghim cố định AZ (vd ap-southeast-1a, ap-southeast-1b) thay vì data source
+  # aws_availability_zones -> kết quả không tự thay đổi khi AWS thêm AZ (CKV_AWS_394)
+  azs = length(var.azs) > 0 ? var.azs : ["${var.aws_region}a", "${var.aws_region}b"]
 }
 
 # AMI Amazon Linux 2023 mới nhất (lấy từ SSM Public Parameter)
@@ -138,3 +136,5 @@ module "private_ec2" {
   # Đảm bảo NAT đã sẵn sàng để private instance có Internet khi khởi động
   depends_on = [module.vpc]
 }
+
+# Lab2 Cau 1 - kiem tra pipeline qua Pull Request

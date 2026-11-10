@@ -23,7 +23,7 @@ variable "vpc_cidr" {
 }
 
 variable "azs" {
-  description = "Danh sách AZ. Để trống = tự lấy 2 AZ đầu tiên của Region"
+  description = "Danh sách AZ. Để trống = dùng <region>a và <region>b"
   type        = list(string)
   default     = []
 }

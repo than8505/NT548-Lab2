@@ -68,7 +68,7 @@ jobs:
       - name: Upload kết quả SARIF lên GitHub Security
         if: always() && hashFiles('checkov-results.sarif') != ''
         continue-on-error: true # repo private không có GHAS sẽ không upload được
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: checkov-results.sarif
           category: checkov-terraform
