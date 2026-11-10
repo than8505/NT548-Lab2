@@ -15,9 +15,11 @@
 | 2 | CloudFormation + CodeBuild (cfn-lint, taskcat) + CodePipeline | ✅ **Pipeline chạy xanh cả 4 stage.** Đã kiểm tra kết nối qua Session Manager. Xem chú ý bên dưới bảng. |
 | 3 | Jenkins + SonarQube + Trivy + k3s trên EC2 | ⏳ **Đã viết code, CHƯA triển khai/chạy thử lần nào.** Đây là phần làm tiếp. |
 
-Chú ý cho Câu 2:
-- Stack hạ tầng `nt548-lab2-cfn-infra` (có NAT Gateway và 2 EC2, **đang tính tiền**) và stack pipeline `nt548-lab2-pipeline` có thể vẫn đang chạy. Kiểm tra bằng lệnh ở mục 7 và xóa nếu không cần.
+Chú ý cho Câu 2 (trên account của người làm trước):
+- Stack hạ tầng `nt548-lab2-cfn-infra` **đã xóa** (10/11) để không tốn phí. Stack pipeline `nt548-lab2-pipeline`, repo CodeCommit và bootstrap Câu 1 vẫn còn. Muốn dựng lại hạ tầng: CodePipeline → **Release change** → Approve.
 - Commit `8a7659b` (sửa PassRole) mới push lên GitHub, **chưa push lên CodeCommit**. Stack pipeline trên AWS đã được cập nhật tay bằng `aws cloudformation deploy` nên vẫn chạy đúng. Muốn đồng bộ thì `git push codecommit main`; lệnh này sẽ kích hoạt pipeline chạy lại và cần bấm Approve.
+
+**Làm lại trên AWS account riêng của bạn?** → làm theo **mục 5** từ trên xuống, có đủ Câu 1 và Câu 2.
 
 ---
 
@@ -25,7 +27,7 @@ Chú ý cho Câu 2:
 
 1. **AWS**
    - Nếu dùng chung account: chủ account tạo cho bạn **IAM user riêng** (lab: `AdministratorAccess`), rồi bạn tự tạo Access Key. **Không** xin key của người khác.
-   - Nếu dùng account riêng: phải làm lại bootstrap Câu 1 và tạo lại pipeline Câu 2 (xem mục 5).
+   - Nếu dùng account riêng: làm theo mục 5. **Đọc kỹ mục 5.0 về kiểu đăng ký account và region.**
    - Region dùng cho toàn bộ lab: **`ap-southeast-1` (Singapore)**.
    - Nên tạo **AWS Budget** (Zero-spend hoặc khoảng 5–10 USD) để có email cảnh báo phí.
 2. **GitHub**
