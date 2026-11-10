@@ -8,6 +8,10 @@ project:
   # project vào prefix <project-name>/  ->  templates/*.yaml nằm tại
   # s3://<autobucket>/nt548-lab2-cfn/templates/
   package_lambda: false
+  # Tạo bucket tạm NGAY TẠI region test (ap-southeast-1). Nếu không, taskcat tạo
+  # bucket ở us-east-1 và CloudFormation báo lỗi "must be addressed using the
+  # specified endpoint" khi đọc nested template qua URL theo region.
+  s3_regional_buckets: true
   shorten_stack_name: true
 
 tests:

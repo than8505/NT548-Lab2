@@ -29,8 +29,8 @@ phases:
     commands:
       - cd "$CODEBUILD_SRC_DIR/$PROJECT_DIR"
       - ls -la taskcat_outputs || true
-      # Dọn bucket tạm do taskcat tạo (nếu còn sót)
-      - taskcat test clean nt548-lab2-cfn || true
+      # taskcat test run đã tự xóa stack test; liệt kê stack tCaT-* còn sót (nếu có)
+      - aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE CREATE_FAILED ROLLBACK_COMPLETE DELETE_FAILED --query "StackSummaries[?starts_with(StackName,'tCaT-')].[StackName,StackStatus]" --output table || true
 
 artifacts:
   name: taskcat-report
