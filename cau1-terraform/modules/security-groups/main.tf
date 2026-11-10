@@ -5,6 +5,7 @@
 ###############################################################################
 
 resource "aws_security_group" "public" {
+  #checkov:skip=CKV2_AWS_5:SG duoc gan vao EC2 qua bien module (vpc_security_group_ids), Checkov khong lan theo duoc qua module
   name        = "${var.name}-public-ec2-sg"
   description = "Public EC2 (bastion): SSH chi tu IP duoc chi dinh"
   vpc_id      = var.vpc_id
@@ -36,6 +37,7 @@ resource "aws_vpc_security_group_egress_rule" "public_all" {
 }
 
 resource "aws_security_group" "private" {
+  #checkov:skip=CKV2_AWS_5:SG duoc gan vao EC2 qua bien module (vpc_security_group_ids), Checkov khong lan theo duoc qua module
   name        = "${var.name}-private-ec2-sg"
   description = "Private EC2: SSH chi tu Public EC2 (bastion)"
   vpc_id      = var.vpc_id
@@ -48,6 +50,7 @@ resource "aws_security_group" "private" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "private_ssh_from_public" {
+  #checkov:skip=CKV_AWS_24:Nguon la Security Group cua bastion (referenced_security_group_id), khong phai 0.0.0.0/0
   security_group_id            = aws_security_group.private.id
   description                  = "SSH tu Public EC2 (bastion)"
   ip_protocol                  = "tcp"
